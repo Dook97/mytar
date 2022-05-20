@@ -17,6 +17,37 @@
 #define INVALID_OPTION		64
 #define MISSING_ARGUMENT	64
 
+#define TAR_BLOCK_BYTES		512
+#define TMAGIC			"ustar"
+#define REGTYPE			'0'
+#define AREGTYPE		'\0'
+
+typedef unsigned int uint;
+
+typedef struct {                     /* byte offset */
+	char name[100];                      /*   0 */
+	char mode[8];                        /* 100 */
+	char uid[8];                         /* 108 */
+	char gid[8];                         /* 116 */
+	char size[12];                       /* 124 */
+	char mtime[12];                      /* 136 */
+	char chksum[8];                      /* 148 */ // simple sum of all fields in the header, excluding the checksum field itself
+	char typeflag;                       /* 156 */ // filetype (directory etc) - this implementation only accepts '0' and '\0'
+	char linkname[100];                  /* 157 */
+	char magic[6];                       /* 257 */
+	char version[2];                     /* 263 */
+	char uname[32];                      /* 265 */
+	char gname[32];                      /* 297 */
+	char devmajor[8];                    /* 329 */
+	char devminor[8];                    /* 337 */
+	char prefix[155];                    /* 345 */
+	char padding[TAR_BLOCK_BYTES - 500]; /* 500 */
+} tar_header;
+
+typedef struct {
+	char bytes[TAR_BLOCK_BYTES];
+} tar_block;
+
 typedef struct {
 	char operation; // t, x or 0 for invalid
 	char **files;
