@@ -48,6 +48,24 @@ typedef struct {
 	char bytes[TAR_BLOCK_BYTES];
 } tar_block;
 
+/* convert null terminated string representing an octal number to int */
+int octal_to_int(char *oct) {
+	size_t len = strlen(oct);
+	int order = 1;
+	int out = 0;
+	for (uint i = 0; i < len; ++i) {
+		out += (oct[len - i - 1] - '0') * order;
+		order *= 8;
+	}
+	return out;
+}
+
+
+
+/* -------------------------------------------------------------------------------- */
+
+
+
 typedef struct {
 	char operation; // t, x or 0 for invalid
 	char **files;
