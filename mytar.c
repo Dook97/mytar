@@ -26,6 +26,7 @@
 #define AREGTYPE		'\0'
 
 typedef unsigned int uint;
+typedef unsigned long ulong;
 
 typedef struct {                     /* byte offset */
 	char name[100];                      /*   0 */
@@ -117,9 +118,13 @@ void get_args(char **argv, args_t *out) {
 		errx(MISSING_ARGUMENT, "Expected -f ARCHIVE_NAME");
 }
 
+ulong get_block_number(size_t offset) {
+	return offset / TAR_BLOCK_SIZE + !!(offset % TAR_BLOCK_SIZE);
+}
+
 int get_entry_size(tar_header_t *header) {
 	int reported_size = octal_to_int(header->size);
-	return (reported_size / TAR_BLOCK_SIZE + !!(reported_size % TAR_BLOCK_SIZE)) * TAR_BLOCK_SIZE;
+	return get_block_number(reported_size) * TAR_BLOCK_SIZE;
 }
 
 bool check_magic(tar_header_t *header) {
@@ -159,6 +164,19 @@ operation_t get_operation(args_t *args) {
 	}
 }
 
+void validate_tar_footer(FILE *archive) {
+	struct {
+		tar_block_t block1;
+		tar_block_t block2;
+	} archive_end;
+
+	fseek(archive, -2 * TAR_BLOCK_SIZE, SEEK_END);
+	fread(&archive_end, 2 * sizeof(tar_header_t), 1, archive);
+	if (!memcmp(&null_block, &(archive_end.block2), TAR_BLOCK_SIZE) && memcmp(&null_block, &(archive_end.block1), TAR_BLOCK_SIZE)) {
+			warnx("A lone zero block at %lu", get_block_number(ftell(archive)));
+	}
+}
+
 void iterate_tar(args_t *args) {
 	FILE *archive;
 	tar_header_t header;
@@ -178,6 +196,8 @@ void iterate_tar(args_t *args) {
 		fread(&header, sizeof(tar_header_t), 1, archive);
 	}
 	fflush(stdout);
+
+	validate_tar_footer(archive);
 
 	bool err = false;
 	for (int i = 0; i < (args->file_count); ++i) {
