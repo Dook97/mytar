@@ -10,7 +10,7 @@
 #define INVALID_OPTION		2
 #define MISSING_ARGUMENT	64
 #define INVALID_FILE		2
-#define UNSUPPORTED_FILETYPE	2
+#define UNSUPPORTED_HEADER	2
 #define NOT_IMPLEMENTED		0
 
 #define TAR_BLOCK_SIZE		512
@@ -113,13 +113,14 @@ ulong get_block_number(size_t offset) {
 	return offset / TAR_BLOCK_SIZE + !!(offset % TAR_BLOCK_SIZE);
 }
 
-int get_entry_size(tar_header_t *header) {
+size_t get_entry_size(tar_header_t *header) {
 	int reported_size = octal_to_int(header->size);
 	return get_block_number(reported_size) * TAR_BLOCK_SIZE;
 }
 
 bool check_magic(tar_header_t *header) {
-	return !memcmp(header->magic, TMAGIC, sizeof(TMAGIC)) || !memcmp(header->magic, TOLDMAGIC, sizeof(TOLDMAGIC));
+	/* return !memcmp(header->magic, TMAGIC, sizeof(TMAGIC)) || !memcmp(header->magic, TOLDMAGIC, sizeof(TOLDMAGIC)); */
+	return !memcmp(header->magic, TMAGIC, sizeof(TMAGIC) - 1); // does the same thing as the above but faster
 }
 
 bool file_in_args(char *filename, args_t *args) {
@@ -159,37 +160,34 @@ void validate_tar_footer(FILE *archive) {
 	struct {
 		tar_block_t block1;
 		tar_block_t block2;
-	} archive_end;
+	} archive_footer;
 
-	fseek(archive, -2 * TAR_BLOCK_SIZE, SEEK_END);
-	fread(&archive_end, 2 * sizeof(tar_header_t), 1, archive);
-	if (!memcmp(&null_block, &(archive_end.block2), TAR_BLOCK_SIZE) && memcmp(&null_block, &(archive_end.block1), TAR_BLOCK_SIZE)) {
+	fseek(archive, -sizeof(archive_footer), SEEK_END);
+	fread(&archive_footer, sizeof(archive_footer), 1, archive);
+	if (!memcmp(&null_block, &(archive_footer.block2), TAR_BLOCK_SIZE) && memcmp(&null_block, &(archive_footer.block1), TAR_BLOCK_SIZE)) {
 			warnx("A lone zero block at %lu", get_block_number(ftell(archive)));
 	}
 }
 
-void iterate_tar(args_t *args) {
-	FILE *archive;
-	tar_header_t header;
-	operation_t operation = get_operation(args);
-	if ((archive = fopen(args->archive_file, "r")) == NULL) {
-		warnx("%s: Cannot open: No such file or directory", args->archive_file);
+FILE *get_fptr(char *filename) {
+	FILE *fptr;
+	if ((fptr = fopen(filename, "r")) == NULL) {
+		warnx("%s: Cannot open: No such file or directory", filename);
 		errx(INVALID_FILE, "Error is not recoverable: exiting now");
 	}
+	return fptr;
+}
 
-	fread(&header, sizeof(tar_header_t), 1, archive);
-	while (memcmp(&null_block, &header, TAR_BLOCK_SIZE) && !feof(archive)) {
-		if ((header.typeflag) != REGTYPE && (header.typeflag) != AREGTYPE)
-			errx(UNSUPPORTED_FILETYPE, "Unsupported header type: %d", (int)(header.typeflag));
-		(*operation)(&header, args);
-		int entry_size = get_entry_size(&header);
-		fseek(archive, entry_size, SEEK_CUR);
-		fread(&header, sizeof(tar_header_t), 1, archive);
-	}
-	fflush(stdout);
+bool reached_EOF(tar_header_t *header, FILE *archive) {
+	return !memcmp(&null_block, header, TAR_BLOCK_SIZE) || feof(archive);
+}
 
-	validate_tar_footer(archive);
+void check_typeflag(char flag) {
+	if (flag != REGTYPE && flag != AREGTYPE)
+		errx(UNSUPPORTED_HEADER, "Unsupported header type: %d", (int)flag);
+}
 
+void check_fileargs(args_t *args) {
 	bool err = false;
 	for (int i = 0; i < (args->file_count); ++i) {
 		if (((args->files)[i])[0] != '\0') {
@@ -199,6 +197,23 @@ void iterate_tar(args_t *args) {
 	}
 	if (err)
 		errx(INVALID_FILE, "Exiting with failure status due to previous errors");
+}
+
+void iterate_tar(args_t *args) {
+	FILE *archive = get_fptr(args->archive_file);
+	operation_t operation = get_operation(args);
+	tar_header_t header;
+
+	while (fread(&header, TAR_BLOCK_SIZE, 1, archive), !reached_EOF(&header, archive)) {
+		check_typeflag(header.typeflag);
+		(*operation)(&header, args);
+		int entry_size = get_entry_size(&header);
+		fseek(archive, entry_size, SEEK_CUR);
+	}
+	fflush(stdout);
+
+	validate_tar_footer(archive);
+	check_fileargs(args);
 }
 
 int main(int argc, char **argv) {
