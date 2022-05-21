@@ -133,6 +133,18 @@ int main(int argc, char **argv) {
 	args_t args = get_args(argc, argv);
 
 #ifdef DEBUG
+	FILE *archive;
+	tar_header_t tar_header;
+	if ((archive = fopen(args.archive_file, "r")) == NULL)
+		ERR(1, "fopen");
+	do {
+		fread(&tar_header, sizeof(tar_header_t), 1, archive);
+		if (check_magic(&tar_header))
+			printf("file name: %s\n", tar_header.name);
+	} while (memcmp(&null_block, &tar_header, TAR_BLOCK_SIZE));
+	fclose(archive);
+
+
 	printf("archive name: %s\n", args.archive_file);
 	printf("action: %c\n", args.operation);
 	printf("file count: %d\n", args.file_count);
@@ -142,7 +154,5 @@ int main(int argc, char **argv) {
 	}
 	printf("\n");
 #endif
-
-
 }
 
