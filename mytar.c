@@ -16,6 +16,7 @@
 #define INVALID_OPTION		2
 #define MISSING_ARGUMENT	64
 #define INVALID_FILE		2
+#define UNSUPPORTED_FILETYPE	2
 #define NOT_IMPLEMENTED		0
 
 #define TAR_BLOCK_SIZE		512
@@ -169,6 +170,8 @@ void iterate_tar(args_t *args) {
 
 	fread(&header, sizeof(tar_header_t), 1, archive);
 	while (memcmp(&null_block, &header, TAR_BLOCK_SIZE) && !feof(archive)) {
+		if ((header.typeflag) != REGTYPE && (header.typeflag) != AREGTYPE)
+			errx(UNSUPPORTED_FILETYPE, "Unsupported header type: %d", (int)(header.typeflag));
 		(*operation)(&header, args);
 		int entry_size = get_entry_size(&header);
 		fseek(archive, entry_size, SEEK_CUR);
