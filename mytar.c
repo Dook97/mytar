@@ -10,14 +10,13 @@
 #define MAX(a,b) (((a) > (b)) ? (a) : (b))
 #define LEN(arr) (sizeof(arr) / sizeof(arr[0]))
 
-#define ERR(ERR, FORMAT, ...) errx(ERR, "err (%d): " FORMAT, ERR, ## __VA_ARGS__)
-#define WARN(ERR, FORMAT, ...) warnx(ERR, "warn (%d): " FORMAT, ERR, ## __VA_ARGS__)
-
 /* exit codes */
 #define NO_ACTION		2
 #define MULTIPLE_ACTIONS	2
 #define INVALID_OPTION		64
 #define MISSING_ARGUMENT	64
+#define INVALID_FILE		2
+#define NOT_IMPLEMENTED		0
 
 #define TAR_BLOCK_SIZE		512
 #define TMAGIC			"ustar"
@@ -60,6 +59,8 @@ typedef struct {
 	char *archive_file;
 } args_t;
 
+typedef void (*operation_t)(tar_header_t, args_t*);
+
 
 
 /* -------------------------------------------------------------------------------- */
@@ -94,7 +95,7 @@ args_t get_args(int argc, char **argv) {
 				case 'x':
 				case 't':
 					if (out.operation)
-						ERR(MULTIPLE_ACTIONS, "A single action (-t or -x) must be specified");
+						errx(MULTIPLE_ACTIONS, "A single action (-t or -x) must be specified");
 					out.operation = arg[1];
 					break;
 
@@ -102,14 +103,14 @@ args_t get_args(int argc, char **argv) {
 					if (*++argv_)
 						arg = *argv_;
 					if (arg[0] == '-')
-						ERR(MISSING_ARGUMENT, "Expected archive name following \'-f\'");
+						errx(MISSING_ARGUMENT, "Expected archive name following \'-f\'");
 					size_t archive_size = (strlen(arg) + 1) * sizeof(char);
 					out.archive_file = (char*)(malloc(archive_size));
 					strcpy(out.archive_file, *argv_);
 					break;
 
 				default:
-					ERR(INVALID_OPTION, "No such option \"%s\"", arg);
+					errx(INVALID_OPTION, "No such option \"%s\"", arg);
 			}
 		} else {
 			size_t filename_size = (strlen(arg) + 1) * sizeof(char);
@@ -120,9 +121,9 @@ args_t get_args(int argc, char **argv) {
 	}
 
 	if (!out.operation)
-		ERR(NO_ACTION, "Expected -x or -t but neither was given");
+		errx(NO_ACTION, "Expected -x or -t but neither was given");
 	if (!out.archive_file)
-		ERR(MISSING_ARGUMENT, "Expected \'-f ARCHIVE_NAME\'");
+		errx(MISSING_ARGUMENT, "Expected \'-f ARCHIVE_NAME\'");
 
 	return out;
 }
@@ -131,7 +132,37 @@ bool check_magic(tar_header_t *tar_header) {
 	return !strcmp(tar_header->magic, TMAGIC) || !strcmp(tar_header->magic, TOLDMAGIC);
 }
 
+void list_tar_entry(tar_header_t *header, args_t *args) {
+	printf("file name: %s\n", header->name);
+}
 
+void extract_tar_entry(tar_header_t *header, args_t *args) {
+	errx(NOT_IMPLEMENTED, "-x not implemented yet");
+	// TODO
+}
+
+operation_t get_operation(args_t *args) {
+	switch (args->operation) {
+		case 't':
+			return list_tar_entry;
+		case 'x':
+			return extract_tar_entry;
+		default:
+			/* this really shouldn't happen though */
+			errx(INVALID_OPTION, "No such option \"-%c\"", args->operation);
+	}
+}
+
+void iterate_tar(args_t *args) {
+	operation_t operation = get_operation(args);
+
+	/* if (check_magic(header)) { */
+	/* 	; */
+	/* } else { */
+	/* 	warnx("This does not look like a tar archive"); */
+	/* 	errx(INVALID_FILE, "Exiting with failure status due to previous errors"); */
+	/* } */
+}
 
 int main(int argc, char **argv) {
 	args_t args = get_args(argc, argv);
@@ -140,11 +171,11 @@ int main(int argc, char **argv) {
 	FILE *archive;
 	tar_header_t tar_header;
 	if ((archive = fopen(args.archive_file, "r")) == NULL)
-		ERR(1, "fopen");
+		errx(1, "fopen");
 	do {
 		fread(&tar_header, sizeof(tar_header_t), 1, archive);
 		if (check_magic(&tar_header))
-			printf("file name: %s\n", tar_header.name);
+			list_tar_entry(&tar_header, &args);
 	} while (memcmp(&null_block, &tar_header, TAR_BLOCK_SIZE));
 	fclose(archive);
 
