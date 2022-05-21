@@ -1,14 +1,8 @@
-/* #define DEBUG */
-
 #include <stdio.h>
 #include <stdbool.h>
 #include <err.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define MIN(a,b) (((a) < (b)) ? (a) : (b))
-#define MAX(a,b) (((a) > (b)) ? (a) : (b))
-#define LEN(arr) (sizeof(arr) / sizeof(arr[0]))
 
 /* exit codes */
 #define NO_ACTION		2
@@ -22,8 +16,8 @@
 #define TAR_BLOCK_SIZE		512
 #define TMAGIC			"ustar"
 #define TOLDMAGIC		"ustar  "
-#define REGTYPE			'0'
-#define AREGTYPE		'\0'
+#define REGTYPE			'0'  // **
+#define AREGTYPE		'\0' // permitted values of typeflag
 
 typedef unsigned int uint;
 typedef unsigned long ulong;
@@ -52,6 +46,7 @@ typedef struct {
 	char bytes[TAR_BLOCK_SIZE];
 } tar_block_t;
 
+/* global variable is automatically zero initialized */
 const tar_block_t null_block;
 
 typedef struct {
@@ -63,11 +58,7 @@ typedef struct {
 
 typedef void (*operation_t)(tar_header_t*, args_t*);
 
-
-
 /* -------------------------------------------------------------------------------- */
-
-
 
 /* convert null terminated string representing an octal number to int */
 int octal_to_int(char *oct) {
@@ -115,7 +106,7 @@ void get_args(char **argv, args_t *out) {
 	if (!out->operation)
 		errx(NO_ACTION, "Expected -x or -t but neither was given");
 	if (!out->archive_file)
-		errx(MISSING_ARGUMENT, "Expected -f ARCHIVE_NAME");
+		errx(MISSING_ARGUMENT, "Expected -f");
 }
 
 ulong get_block_number(size_t offset) {
