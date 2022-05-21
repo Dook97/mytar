@@ -11,6 +11,7 @@
 #define MISSING_ARGUMENT	64
 #define INVALID_FILE		2
 #define UNSUPPORTED_HEADER	2
+#define TRUNCATED_ARCHIVE	2
 #define NOT_IMPLEMENTED		0
 
 #define TAR_BLOCK_SIZE		512
@@ -118,10 +119,17 @@ size_t get_entry_size(tar_header_t *header) {
 	return get_block_number(reported_size) * TAR_BLOCK_SIZE;
 }
 
-bool check_magic(tar_header_t *header) {
-	/* return !memcmp(header->magic, TMAGIC, sizeof(TMAGIC)) || !memcmp(header->magic, TOLDMAGIC, sizeof(TOLDMAGIC)); */
-	return !memcmp(header->magic, TMAGIC, sizeof(TMAGIC) - 1); // does the same thing as the above but faster
+size_t get_filesize(FILE *f) {
+	size_t cur_pos = ftell(f);
+	fseek(f, 0, SEEK_END);
+	size_t out = ftell(f);
+	fseek(f, cur_pos, SEEK_SET);
+	return out;
 }
+
+/* bool check_magic(tar_header_t *header) { */
+/* 	return !memcmp(header->magic, TMAGIC, sizeof(TMAGIC)) || !memcmp(header->magic, TOLDMAGIC, sizeof(TOLDMAGIC)); */
+/* } */
 
 bool file_in_args(char *filename, args_t *args) {
 	for (int i = 0; i < (args->file_count); ++i) {
@@ -199,18 +207,28 @@ void check_fileargs(args_t *args) {
 		errx(INVALID_FILE, "Exiting with failure status due to previous errors");
 }
 
+void check_if_truncated(FILE *archive, size_t entry_size, size_t file_size) {
+	if (ftell(archive) + entry_size > file_size) {
+		warnx("Unexpected EOF in archive");
+		errx(TRUNCATED_ARCHIVE, "Error is not recoverable: exiting now");
+	}
+
+}
+
 void iterate_tar(args_t *args) {
 	FILE *archive = get_fptr(args->archive_file);
+	size_t file_size = get_filesize(archive);
 	operation_t operation = get_operation(args);
 	tar_header_t header;
 
 	while (fread(&header, TAR_BLOCK_SIZE, 1, archive), !reached_EOF(&header, archive)) {
 		check_typeflag(header.typeflag);
 		(*operation)(&header, args);
+		fflush(stdout);
 		int entry_size = get_entry_size(&header);
+		check_if_truncated(archive, entry_size, file_size);
 		fseek(archive, entry_size, SEEK_CUR);
 	}
-	fflush(stdout);
 
 	validate_tar_footer(archive);
 	check_fileargs(args);
