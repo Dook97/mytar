@@ -16,13 +16,14 @@
 
 #define TAR_BLOCK_SIZE		512
 #define TMAGIC			"ustar"
-#define TOLDMAGIC		"ustar  "
+#define TOLDMAGIC		"ustar  " // supposedly deprecated version of the magic field
 #define REGTYPE			'0'  // **
 #define AREGTYPE		'\0' // permitted values of typeflag
 
 typedef unsigned int uint;
 typedef unsigned long ulong;
 
+/* tar header block */
 typedef struct {                     /* byte offset */
 	char name[100];                      /*   0 */
 	char mode[8];                        /* 100 */
@@ -43,6 +44,7 @@ typedef struct {                     /* byte offset */
 	char padding[TAR_BLOCK_SIZE - 500];  /* 500 */
 } tar_header_t;
 
+/* tar data block */
 typedef struct {
 	char bytes[TAR_BLOCK_SIZE];
 } tar_block_t;
@@ -50,6 +52,7 @@ typedef struct {
 /* global variable is automatically zero initialized */
 const tar_block_t null_block;
 
+/* holds user given arguments */
 typedef struct {
 	char operation; // t, x or 0 for invalid
 	char **files;
@@ -73,6 +76,7 @@ int octal_to_int(char *oct) {
 	return out;
 }
 
+/* parses user provided arguments */
 void get_args(char **argv, args_t *out) {
 	while (*++argv) {
 		char *arg = *argv;
@@ -110,6 +114,7 @@ void get_args(char **argv, args_t *out) {
 		errx(MISSING_ARGUMENT, "Expected -f");
 }
 
+/* get number of tar block up to offset - ceiled */
 ulong get_block_number(size_t offset) {
 	return offset / TAR_BLOCK_SIZE + !!(offset % TAR_BLOCK_SIZE);
 }
@@ -131,10 +136,13 @@ size_t get_filesize(FILE *f) {
 /* 	return !memcmp(header->magic, TMAGIC, sizeof(TMAGIC)) || !memcmp(header->magic, TOLDMAGIC, sizeof(TOLDMAGIC)); */
 /* } */
 
+/* check whether filename found in tar header block is one of those supplied by user */
 bool file_in_args(char *filename, args_t *args) {
-	for (int i = 0; i < (args->file_count); ++i) {
+	for (int i = 0; i < args->file_count; ++i) {
 		if (!strcmp(filename, (args->files)[i])) {
 			/* mark file as found in archive */
+			/* this will be later used by the check_fileargs function to detect invalid user input */
+			/* ugly - I know :p */
 			((args->files)[i])[0] = '\0';
 			return true;
 		}
@@ -142,8 +150,9 @@ bool file_in_args(char *filename, args_t *args) {
 	return false;
 }
 
+/* a implementation of the -t (list files in archive) option */
 void list_tar_entry(tar_header_t *header, args_t *args) {
-	if ((args->file_count == 0) || file_in_args(header->name, args))
+	if (args->file_count == 0 || file_in_args(header->name, args))
 		printf("%s\n", header->name);
 }
 
@@ -152,6 +161,7 @@ void list_tar_entry(tar_header_t *header, args_t *args) {
 /* 	// TODO */
 /* } */
 
+/* get pointer to a function which will be used to process tar header blocks */
 operation_t get_operation(args_t *args) {
 	switch (args->operation) {
 		case 't':
@@ -164,6 +174,7 @@ operation_t get_operation(args_t *args) {
 	}
 }
 
+/* ommits a warning when tar file ends with a lone zero 512B block */
 void validate_tar_footer(FILE *archive) {
 	struct {
 		tar_block_t block1;
@@ -177,6 +188,7 @@ void validate_tar_footer(FILE *archive) {
 	}
 }
 
+/* a shortcut for opening files */
 FILE *get_fptr(char *filename) {
 	FILE *fptr;
 	if ((fptr = fopen(filename, "r")) == NULL) {
@@ -195,6 +207,7 @@ void check_typeflag(char flag) {
 		errx(UNSUPPORTED_HEADER, "Unsupported header type: %d", (int)flag);
 }
 
+/* check whether all file arguments supplied by user were found in the archive */
 void check_fileargs(args_t *args) {
 	bool err = false;
 	for (int i = 0; i < (args->file_count); ++i) {
@@ -212,9 +225,9 @@ void check_if_truncated(FILE *archive, size_t entry_size, size_t file_size) {
 		warnx("Unexpected EOF in archive");
 		errx(TRUNCATED_ARCHIVE, "Error is not recoverable: exiting now");
 	}
-
 }
 
+/* iterate over header blocks and perform on them the operation specified by user */
 void iterate_tar(args_t *args) {
 	FILE *archive = get_fptr(args->archive_file);
 	size_t file_size = get_filesize(archive);
