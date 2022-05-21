@@ -1,4 +1,4 @@
-#define DEBUG
+/* #define DEBUG */
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -59,7 +59,7 @@ typedef struct {
 	char *archive_file;
 } args_t;
 
-typedef void (*operation_t)(tar_header_t, args_t*);
+typedef void (*operation_t)(tar_header_t*, args_t*);
 
 
 
@@ -98,7 +98,6 @@ args_t get_args(int argc, char **argv) {
 						errx(MULTIPLE_ACTIONS, "A single action (-t or -x) must be specified");
 					out.operation = arg[1];
 					break;
-
 				case 'f':
 					if (*++argv_)
 						arg = *argv_;
@@ -108,7 +107,6 @@ args_t get_args(int argc, char **argv) {
 					out.archive_file = (char*)(malloc(archive_size));
 					strcpy(out.archive_file, *argv_);
 					break;
-
 				default:
 					errx(INVALID_OPTION, "No such option \"%s\"", arg);
 			}
@@ -128,55 +126,77 @@ args_t get_args(int argc, char **argv) {
 	return out;
 }
 
-bool check_magic(tar_header_t *tar_header) {
-	return !strcmp(tar_header->magic, TMAGIC) || !strcmp(tar_header->magic, TOLDMAGIC);
+int get_entry_size(tar_header_t *header) {
+	int reported_size = octal_to_int(header->size);
+	return (reported_size / TAR_BLOCK_SIZE + !!(reported_size % TAR_BLOCK_SIZE)) * TAR_BLOCK_SIZE;
+}
+
+bool check_magic(tar_header_t *header) {
+	return !strcmp(header->magic, TMAGIC) || !strcmp(header->magic, TOLDMAGIC);
+}
+
+bool file_in_args(char *filename, args_t *args) {
+	for (int i = 0; i < (args->file_count); ++i) {
+		if (strcmp(filename, (args->files)[i]) == 0)
+			return true;
+	}
+	return false;
 }
 
 void list_tar_entry(tar_header_t *header, args_t *args) {
-	printf("file name: %s\n", header->name);
+	if ((args->file_count == 0) || file_in_args(header->name, args))
+		printf("%s\n", header->name);
 }
 
-void extract_tar_entry(tar_header_t *header, args_t *args) {
-	errx(NOT_IMPLEMENTED, "-x not implemented yet");
-	// TODO
-}
+/* void extract_tar_entry(tar_header_t *header, args_t *args) { */
+/* 	errx(NOT_IMPLEMENTED, "-x not implemented yet"); */
+/* 	// TODO */
+/* } */
 
 operation_t get_operation(args_t *args) {
 	switch (args->operation) {
 		case 't':
 			return list_tar_entry;
-		case 'x':
-			return extract_tar_entry;
+		/* case 'x': */
+		/* 	return extract_tar_entry; */
 		default:
-			/* this really shouldn't happen though */
-			errx(INVALID_OPTION, "No such option \"-%c\"", args->operation);
+			/* this really shouldn't happen */
+			errx(29, "YOU GOT A PROBLEM CHIEF");
 	}
 }
 
 void iterate_tar(args_t *args) {
+	FILE *archive;
+	tar_header_t header;
 	operation_t operation = get_operation(args);
+	if ((archive = fopen(args->archive_file, "r")) == NULL) {
+		warnx("%s: Cannot open: No such file or directory", args->archive_file);
+		errx(INVALID_FILE, "Error is not recoverable: exiting now");
+	}
 
-	/* if (check_magic(header)) { */
-	/* 	; */
-	/* } else { */
-	/* 	warnx("This does not look like a tar archive"); */
-	/* 	errx(INVALID_FILE, "Exiting with failure status due to previous errors"); */
-	/* } */
+	fread(&header, sizeof(tar_header_t), 1, archive);
+	while (memcmp(&null_block, &header, TAR_BLOCK_SIZE)) {
+		(*operation)(&header, args);
+		int entry_size = get_entry_size(&header);
+		fseek(archive, entry_size, SEEK_CUR);
+		fread(&header, sizeof(tar_header_t), 1, archive);
+	}
 }
 
 int main(int argc, char **argv) {
 	args_t args = get_args(argc, argv);
+	iterate_tar(&args);
 
 #ifdef DEBUG
 	FILE *archive;
-	tar_header_t tar_header;
+	tar_header_t header;
 	if ((archive = fopen(args.archive_file, "r")) == NULL)
 		errx(1, "fopen");
 	do {
-		fread(&tar_header, sizeof(tar_header_t), 1, archive);
-		if (check_magic(&tar_header))
-			list_tar_entry(&tar_header, &args);
-	} while (memcmp(&null_block, &tar_header, TAR_BLOCK_SIZE));
+		fread(&header, sizeof(tar_header_t), 1, archive);
+		if (check_magic(&header))
+			list_tar_entry(&header, &args);
+	} while (memcmp(&null_block, &header, TAR_BLOCK_SIZE));
 	fclose(archive);
 
 
@@ -189,5 +209,7 @@ int main(int argc, char **argv) {
 	}
 	printf("\n");
 #endif
+
+	return 0;
 }
 
