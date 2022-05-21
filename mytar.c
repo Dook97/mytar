@@ -127,6 +127,10 @@ args_t get_args(int argc, char **argv) {
 	return out;
 }
 
+bool check_magic(tar_header_t *tar_header) {
+	return !strcmp(tar_header->magic, TMAGIC) || !strcmp(tar_header->magic, TOLDMAGIC);
+}
+
 
 
 int main(int argc, char **argv) {
