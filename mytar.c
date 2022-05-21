@@ -1,3 +1,5 @@
+#define DEBUG
+
 #include <stdio.h>
 #include <stdbool.h>
 #include <err.h>
@@ -17,8 +19,9 @@
 #define INVALID_OPTION		64
 #define MISSING_ARGUMENT	64
 
-#define TAR_BLOCK_BYTES		512
+#define TAR_BLOCK_SIZE		512
 #define TMAGIC			"ustar"
+#define TOLDMAGIC		"ustar  "
 #define REGTYPE			'0'
 #define AREGTYPE		'\0'
 
@@ -41,12 +44,27 @@ typedef struct {                     /* byte offset */
 	char devmajor[8];                    /* 329 */
 	char devminor[8];                    /* 337 */
 	char prefix[155];                    /* 345 */
-	char padding[TAR_BLOCK_BYTES - 500]; /* 500 */
-} tar_header;
+	char padding[TAR_BLOCK_SIZE - 500];  /* 500 */
+} tar_header_t;
 
 typedef struct {
-	char bytes[TAR_BLOCK_BYTES];
-} tar_block;
+	char bytes[TAR_BLOCK_SIZE];
+} tar_block_t;
+
+const tar_block_t null_block;
+
+typedef struct {
+	char operation; // t, x or 0 for invalid
+	char **files;
+	int file_count;
+	char *archive_file;
+} args_t;
+
+
+
+/* -------------------------------------------------------------------------------- */
+
+
 
 /* convert null terminated string representing an octal number to int */
 int octal_to_int(char *oct) {
@@ -60,21 +78,8 @@ int octal_to_int(char *oct) {
 	return out;
 }
 
-
-
-/* -------------------------------------------------------------------------------- */
-
-
-
-typedef struct {
-	char operation; // t, x or 0 for invalid
-	char **files;
-	int file_count;
-	char *archive_file;
-} args;
-
-args get_args(int argc, char **argv) {
-	args out = {
+args_t get_args(int argc, char **argv) {
+	args_t out = {
 		.operation = 0,
 		.files = (char**)(malloc((argc - 1) * sizeof(char*))),
 		.file_count = 0,
@@ -88,8 +93,8 @@ args get_args(int argc, char **argv) {
 			switch (arg[1]) {
 				case 'x':
 				case 't':
-					if (out.operation != 0)
-						ERR(MULTIPLE_ACTIONS, "A single action (-t or -x) must be specified.");
+					if (out.operation)
+						ERR(MULTIPLE_ACTIONS, "A single action (-t or -x) must be specified");
 					out.operation = arg[1];
 					break;
 
@@ -97,14 +102,14 @@ args get_args(int argc, char **argv) {
 					if (*++argv_)
 						arg = *argv_;
 					if (arg[0] == '-')
-						ERR(MISSING_ARGUMENT, "Expected archive name following \'-f\'.");
+						ERR(MISSING_ARGUMENT, "Expected archive name following \'-f\'");
 					size_t archive_size = (strlen(arg) + 1) * sizeof(char);
 					out.archive_file = (char*)(malloc(archive_size));
 					strcpy(out.archive_file, *argv_);
 					break;
 
 				default:
-					ERR(INVALID_OPTION, "No such option \"%s\".", arg);
+					ERR(INVALID_OPTION, "No such option \"%s\"", arg);
 			}
 		} else {
 			size_t filename_size = (strlen(arg) + 1) * sizeof(char);
@@ -115,23 +120,29 @@ args get_args(int argc, char **argv) {
 	}
 
 	if (!out.operation)
-		ERR(NO_ACTION, "Expected -x or -t but neither was given.");
+		ERR(NO_ACTION, "Expected -x or -t but neither was given");
 	if (!out.archive_file)
-		ERR(MISSING_ARGUMENT, "Expected \'-f ARCHIVE_NAME\'.");
+		ERR(MISSING_ARGUMENT, "Expected \'-f ARCHIVE_NAME\'");
 
 	return out;
 }
 
-int main(int argc, char **argv) {
-	args job = get_args(argc, argv);
 
-	printf("archive name: %s\n", job.archive_file);
-	printf("action: %c\n", job.operation);
-	printf("file count: %d\n", job.file_count);
+
+int main(int argc, char **argv) {
+	args_t args = get_args(argc, argv);
+
+#ifdef DEBUG
+	printf("archive name: %s\n", args.archive_file);
+	printf("action: %c\n", args.operation);
+	printf("file count: %d\n", args.file_count);
 	printf("files: ");
-	for (int i = 0; i < job.file_count; ++i) {
-		printf("%s ", job.files[i]);
+	for (int i = 0; i < args.file_count; ++i) {
+		printf("\'%s\' ", args.files[i]);
 	}
 	printf("\n");
+#endif
+
+
 }
 
