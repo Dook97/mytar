@@ -13,7 +13,7 @@
 /* exit codes */
 #define NO_ACTION		2
 #define MULTIPLE_ACTIONS	2
-#define INVALID_OPTION		64
+#define INVALID_OPTION		2
 #define MISSING_ARGUMENT	64
 #define INVALID_FILE		2
 #define NOT_IMPLEMENTED		0
@@ -80,9 +80,8 @@ int octal_to_int(char *oct) {
 }
 
 void get_args(char **argv, args_t *out) {
-	char **argv_ = argv;
-	while (*++argv_) {
-		char *arg = *argv_;
+	while (*++argv) {
+		char *arg = *argv;
 		if (arg[0] == '-') {
 			switch (arg[1]) {
 				case 'x':
@@ -92,13 +91,13 @@ void get_args(char **argv, args_t *out) {
 					out->operation = arg[1];
 					break;
 				case 'f':
-					if (*++argv_)
-						arg = *argv_;
+					if (*++argv)
+						arg = *argv;
 					if (arg[0] == '-')
 						errx(MISSING_ARGUMENT, "Expected archive name following \'-f\'");
 					size_t archive_size = (strlen(arg) + 1) * sizeof(char);
 					out->archive_file = (char*)(malloc(archive_size));
-					strcpy(out->archive_file, *argv_);
+					strcpy(out->archive_file, *argv);
 					break;
 				default:
 					errx(INVALID_OPTION, "No such option \"%s\"", arg);
@@ -106,7 +105,7 @@ void get_args(char **argv, args_t *out) {
 		} else {
 			size_t filename_size = (strlen(arg) + 1) * sizeof(char);
 			out->files[out->file_count] = (char*)(malloc(filename_size));
-			strcpy(out->files[out->file_count], *argv_);
+			strcpy(out->files[out->file_count], *argv);
 			++(out->file_count);
 		}
 	}
@@ -128,8 +127,11 @@ bool check_magic(tar_header_t *header) {
 
 bool file_in_args(char *filename, args_t *args) {
 	for (int i = 0; i < (args->file_count); ++i) {
-		if (!strcmp(filename, (args->files)[i]))
+		if (!strcmp(filename, (args->files)[i])) {
+			/* mark file as found in archive */
+			((args->files)[i])[0] = '\0';
 			return true;
+		}
 	}
 	return false;
 }
@@ -172,6 +174,17 @@ void iterate_tar(args_t *args) {
 		fseek(archive, entry_size, SEEK_CUR);
 		fread(&header, sizeof(tar_header_t), 1, archive);
 	}
+	fflush(stdout);
+
+	bool err = false;
+	for (int i = 0; i < (args->file_count); ++i) {
+		if (((args->files)[i])[0] != '\0') {
+			warnx("%s: Not found in archive", (args->files)[i]);
+			err = true;
+		}
+	}
+	if (err)
+		errx(INVALID_FILE, "Exiting with failure status due to previous errors");
 }
 
 int main(int argc, char **argv) {
