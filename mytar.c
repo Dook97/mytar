@@ -228,23 +228,21 @@ void check_if_truncated(FILE *archive, size_t entry_size, size_t file_size) {
 }
 
 /* iterate over header blocks and perform on them the operation specified by user */
-void iterate_tar(args_t *args) {
-	FILE *archive = get_fptr(args->archive_file);
+void iterate_tar(args_t *args, FILE *archive) {
 	size_t file_size = get_filesize(archive);
 	operation_t operation = get_operation(args);
 	tar_header_t header;
 
+	int entry_size;
 	while (fread(&header, TAR_BLOCK_SIZE, 1, archive), !reached_EOF(&header, archive)) {
 		check_typeflag(header.typeflag);
 		(*operation)(&header, args);
 		fflush(stdout);
-		int entry_size = get_entry_size(&header);
-		check_if_truncated(archive, entry_size, file_size);
+		entry_size = get_entry_size(&header);
 		fseek(archive, entry_size, SEEK_CUR);
 	}
-
-	validate_tar_footer(archive);
-	check_fileargs(args);
+	fseek(archive, -entry_size, SEEK_CUR);
+	check_if_truncated(archive, entry_size, file_size);
 }
 
 int main(int argc, char **argv) {
@@ -254,9 +252,12 @@ int main(int argc, char **argv) {
 		.file_count = 0,
 		.archive_file = NULL
 	};
-
 	get_args(argv, &args);
-	iterate_tar(&args);
+	FILE *archive = get_fptr(args.archive_file);
+
+	iterate_tar(&args, archive);
+	validate_tar_footer(archive);
+	check_fileargs(&args);
 
 	return 0;
 }
