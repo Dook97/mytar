@@ -220,8 +220,8 @@ void check_fileargs(args_t *args) {
 		errx(INVALID_FILE, "Exiting with failure status due to previous errors");
 }
 
-void check_if_truncated(FILE *archive, size_t entry_size, size_t file_size) {
-	if (ftell(archive) + entry_size > file_size) {
+void check_if_truncated(size_t cur_pos, size_t entry_size, size_t file_size) {
+	if (cur_pos + entry_size > file_size) {
 		warnx("Unexpected EOF in archive");
 		errx(TRUNCATED_ARCHIVE, "Error is not recoverable: exiting now");
 	}
@@ -241,8 +241,7 @@ void iterate_tar(args_t *args, FILE *archive) {
 		entry_size = get_entry_size(&header);
 		fseek(archive, entry_size, SEEK_CUR);
 	}
-	fseek(archive, -entry_size, SEEK_CUR);
-	check_if_truncated(archive, entry_size, file_size);
+	check_if_truncated(ftell(archive) - entry_size, entry_size, file_size);
 }
 
 int main(int argc, char **argv) {
