@@ -12,6 +12,7 @@
 #define	INVALID_FILE		2
 #define	UNSUPPORTED_HEADER	2
 #define	TRUNCATED_ARCHIVE	2
+#define NOT_TAR			2
 #define	NO_MEMORY		1
 #define	NOT_IMPLEMENTED		0
 
@@ -62,7 +63,7 @@ typedef struct {
 	int file_count;
 } args_t;
 
-typedef void (*operation_t)(tar_header_t *, args_t *);
+typedef void (*operation_t)(tar_header_t *, args_t *, FILE *);
 
 /* -------------------------------------------------------------------------- */
 
@@ -138,26 +139,28 @@ size_t get_filesize(FILE *f) {
 	return out;
 }
 
-bool check_magic(tar_header_t *header) {
-	return !memcmp(header->magic, TMAGIC, sizeof(TMAGIC)) || !memcmp(header->magic, TOLDMAGIC, sizeof(TOLDMAGIC));
+void check_magic(tar_header_t *header) {
+	if (!!memcmp(header->magic, TMAGIC, sizeof(TMAGIC)) && !!memcmp(header->magic, TOLDMAGIC, sizeof(TOLDMAGIC))) {
+		warnx("This does not look like a tar archive");
+		errx(NOT_TAR, "Exiting with failure status due to previous errors");
+	}
 }
 
 /* check whether filename found in tar header block is one of those supplied by user */
 bool is_file_in_args(char *filename, args_t *args) {
 	for (int i = 0; i < args->file_count; ++i) {
 		if (!strcmp(filename, (args->files)[i])) {
-			/* mark file as found in archive */
-			/* this will be later used by the check_fileargs function to detect invalid user input */
-			(args->files)[i][0] = '\0';
+			(args->files)[i][0] = '\0';	// mark file as found in archive
 			return true;
 		}
 	}
 	return false;
 }
 
-/* a implementation of the -t (list files in archive) option */
-void list_tar_entry(tar_header_t *header, args_t *args) {
+/* an implementation of the -t (list files in archive) option */
+void list_tar_entry(tar_header_t *header, args_t *args, FILE *archive) {
 	printf("%s\n", header->name);
+	(void)args; (void)archive;	// a hack to stop compiler from complaining about unused params
 }
 
 // TODO
@@ -191,16 +194,6 @@ void validate_tar_footer(FILE *archive) {
 		warnx("A lone zero block at %lu", get_block_number(ftell(archive)));
 
 	fseek(archive, cur_pos, SEEK_SET);
-}
-
-/* a shortcut for opening files */
-FILE *get_fptr(char *filename) {
-	FILE *fptr;
-	if ((fptr = fopen(filename, "r")) == NULL) {
-		warnx("%s: Cannot open: No such file or directory", filename);
-		errx(INVALID_FILE, "Error is not recoverable: exiting now");
-	}
-	return fptr;
 }
 
 bool reached_EOF(tar_header_t *header, FILE *archive) {
@@ -241,8 +234,9 @@ void iterate_tar(args_t *args, FILE *archive) {
 	int entry_size;
 	while (fread(&header, TAR_BLOCK_SIZE, 1, archive), !reached_EOF(&header, archive)) {
 		if (is_file_in_args(header.name, args) || args->file_count == 0) {
+			check_magic(&header);
 			check_typeflag(header.typeflag);
-			(*operation)(&header, args);
+			(*operation)(&header, args, archive);
 			fflush(stdout);
 		}
 		entry_size = get_entry_size(&header);
@@ -255,7 +249,11 @@ int main(int argc, char **argv) {
 	args_t args;
 	get_args(argc, argv, &args);
 
-	FILE *archive = get_fptr(args.archive_file);
+	FILE *archive = fopen(args.archive_file, "r");
+	if (archive == NULL) {
+		warnx("%s: Cannot open: No such file or directory", args.archive_file);
+		errx(INVALID_FILE, "Error is not recoverable: exiting now");
+	}
 
 	iterate_tar(&args, archive);
 	validate_tar_footer(archive);
