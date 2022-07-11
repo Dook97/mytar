@@ -147,7 +147,7 @@ void check_magic(tar_header_t *header) {
 }
 
 /* check whether filename found in tar header block is one of those supplied by user */
-bool is_file_in_args(char *filename, args_t *args) {
+bool file_in_args(char *filename, args_t *args) {
 	for (int i = 0; i < args->file_count; ++i) {
 		if (!strcmp(filename, (args->files)[i])) {
 			(args->files)[i][0] = '\0';	// mark file as found in archive
@@ -163,9 +163,27 @@ void list_tar_entry(tar_header_t *header, args_t *args, FILE *archive) {
 	(void)args; (void)archive;	// a hack to stop compiler from complaining about unused params
 }
 
-// TODO
-void extract_tar_entry(tar_header_t *header, args_t *args) {
-	errx(NOT_IMPLEMENTED, "-x not implemented yet");
+/* an implementaion of the -x (extract) option */
+void extract_tar_entry(tar_header_t *header, args_t *args, FILE *archive) {
+	FILE *f = fopen(header->name, "w");
+	if (!f)
+		errx(INVALID_FILE, "Couldn't open file \"%s\" for writing", header->name);
+	long cur_pos = ftell(archive);
+
+	int f_size = octal_to_int(header->size);
+	tar_block_t block;
+	for (int i = 0; i < f_size / TAR_BLOCK_SIZE; ++i) {
+		fread(&block, TAR_BLOCK_SIZE, 1, archive);
+		fwrite(&block, TAR_BLOCK_SIZE, 1, f);
+	}
+	fread(&block, f_size % TAR_BLOCK_SIZE, 1, archive);
+	fwrite(&block, f_size % TAR_BLOCK_SIZE, 1, f);
+
+	fseek(archive, cur_pos, SEEK_SET);
+	fclose(f);
+
+	if (args->verbose)
+		printf("%s\n", header->name);
 }
 
 /* get pointer to a function which will be used to process tar header blocks */
@@ -206,7 +224,7 @@ void check_typeflag(char flag) {
 }
 
 /* check whether all file arguments supplied by user were found in the archive */
-/* this is done by checking the presence of a mark we set when calling is_file_in_args */
+/* this is done by checking the presence of a mark we set when calling file_in_args */
 void check_fileargs(args_t *args) {
 	bool err = false;
 	for (int i = 0; i < args->file_count; ++i) {
@@ -233,7 +251,7 @@ void iterate_tar(args_t *args, FILE *archive) {
 	tar_header_t header;
 	int entry_size;
 	while (fread(&header, TAR_BLOCK_SIZE, 1, archive), !reached_EOF(&header, archive)) {
-		if (is_file_in_args(header.name, args) || args->file_count == 0) {
+		if (file_in_args(header.name, args) || args->file_count == 0) {
 			check_magic(&header);
 			check_typeflag(header.typeflag);
 			(*operation)(&header, args, archive);
