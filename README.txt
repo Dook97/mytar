@@ -5,14 +5,11 @@ Language na MFF UK
 
 ==================================================
 
-Zatím implementuje:
+Implementuje:
 
 * -t
-* -f
-
-Bude implementovat ještě:
-
 * -x
+* -f
 * -v
 
 To vše pouze pro regulérní soubory.
