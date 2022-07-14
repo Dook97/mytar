@@ -52,11 +52,12 @@ typedef struct {
 } tar_block_t;
 
 /* global variable is automatically zero initialized */
+/* a null tar block will be useful for detecting end of archive and such */
 const tar_block_t null_block;
 
 /* holds user given arguments */
 typedef struct {
-	char operation;		// t, x or 0 for invalid
+	char operation;	// t, x or 0 for invalid
 	char **files;
 	char *archive_file;
 	bool verbose;
@@ -68,8 +69,8 @@ typedef void (*operation_t)(tar_header_t *, args_t *, FILE *);
 /* -------------------------------------------------------------------------- */
 
 void *get_memory(size_t bytes) {
-	void *ptr;
-	if ((ptr = malloc(bytes)) == NULL)
+	void *ptr = malloc(bytes);
+	if (!ptr)
 		errx(NO_MEMORY, "Out of memory");
 	return ptr;
 }
@@ -173,11 +174,9 @@ void extract_tar_entry(tar_header_t *header, args_t *args, FILE *archive) {
 	int f_size = octal_to_int(header->size);
 	tar_block_t block;
 	for (int i = 0; i < f_size / TAR_BLOCK_SIZE; ++i) {
-		fread(&block, TAR_BLOCK_SIZE, 1, archive);
-		fwrite(&block, TAR_BLOCK_SIZE, 1, f);
+		size_t bytes_read = fread(&block, 1, TAR_BLOCK_SIZE, archive);
+		fwrite(&block, bytes_read, 1, f);
 	}
-	fread(&block, f_size % TAR_BLOCK_SIZE, 1, archive);
-	fwrite(&block, f_size % TAR_BLOCK_SIZE, 1, f);
 
 	fseek(archive, cur_pos, SEEK_SET);
 	fclose(f);
@@ -250,7 +249,7 @@ void iterate_tar(args_t *args, FILE *archive) {
 	operation_t operation = get_operation(args);
 	tar_header_t header;
 	int entry_size;
-	while (fread(&header, TAR_BLOCK_SIZE, 1, archive), !reached_EOF(&header, archive)) {
+	while (fread(&header, TAR_BLOCK_SIZE, 1, archive) != 0 && !reached_EOF(&header, archive)) {
 		if (file_in_args(header.name, args) || args->file_count == 0) {
 			check_magic(&header);
 			check_typeflag(header.typeflag);
