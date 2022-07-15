@@ -1,19 +1,20 @@
-mytar - implementace podmnožiny taru
+mytar - a subset of tar
 
-Zápočtový program pro předmět The C programming
-Language na MFF UK
+Final program for The C Programming Language
+class at MFF UK.
 
 ==================================================
 
-Implementuje:
+The following flags are supported:
 
 * -t
 * -x
 * -f
 * -v
 
-To vše pouze pro regulérní soubory.
+Only works with archives containing regular
+files.
 
 ==================================================
 
-Autor: Jan Doskočil
+Author: Jan Doskočil
