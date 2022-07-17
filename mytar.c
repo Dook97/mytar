@@ -1,27 +1,33 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <err.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
 /* exit codes */
-#define	NO_ACTION		2
-#define	MULTIPLE_ACTIONS	2
-#define	INVALID_OPTION		2
-#define	MISSING_ARGUMENT	64
-#define	INVALID_FILE		2
-#define	UNSUPPORTED_HEADER	2
-#define	TRUNCATED_ARCHIVE	2
+#define NO_ACTION		2
+#define MULTIPLE_ACTIONS	2
+#define INVALID_OPTION		2
+#define MISSING_ARGUMENT	64
+#define INVALID_FILE		2
+#define UNSUPPORTED_HEADER	2
+#define TRUNCATED_ARCHIVE	2
 #define NOT_TAR			2
-#define	NO_MEMORY		1
-#define	NOT_IMPLEMENTED		0
+#define NO_MEMORY		1
 
 /* tar constants */
-#define	TAR_BLOCK_SIZE		512
-#define	TMAGIC			"ustar"
-#define	TOLDMAGIC		"ustar  "
-#define	REGTYPE			'0'
-#define	AREGTYPE		'\0'
+#define TAR_BLOCK_SIZE		512
+#define TMAGIC			"ustar"
+#define TOLDMAGIC		"ustar  "
+#define REGTYPE			'0'
+#define AREGTYPE		'\0'
+
+/* avoid problems with stdout being buffered while stderr isnt */
+#define WARN(msg, ...)		{fflush(stdout);warn((msg), ## __VA_ARGS__);}
+#define WARNX(msg, ...)		{fflush(stdout);warnx((msg), ## __VA_ARGS__);}
+#define ERR(code, msg, ...)	{fflush(stdout);err((code), (msg), ## __VA_ARGS__);}
+#define ERRX(code, msg, ...)	{fflush(stdout);errx((code), (msg), ## __VA_ARGS__);}
 
 /* convenience stuff */
 #define	min(a, b)		(((a) < (b)) ? (a) : (b))
@@ -71,8 +77,8 @@ typedef struct args {
 
 void *get_memory(size_t bytes) {
 	void *ptr = malloc(bytes);
-	if (!ptr)
-		errx(NO_MEMORY, "Out of memory");
+	if (ptr == NULL)
+		ERR(NO_MEMORY, "Couldn't allocate memory");
 	return ptr;
 }
 
@@ -80,10 +86,8 @@ void *get_memory(size_t bytes) {
 int octal_to_int(char *oct) {
 	size_t len = strlen(oct);
 	int out = 0;
-	for (uint order = 1, i = 0; i < len; ++i) {
+	for (uint order = 1, i = 0; i < len; ++i, order *= 8)
 		out += (oct[len - i - 1] - '0') * order;
-		order *= 8;
-	}
 	return out;
 }
 
@@ -109,8 +113,8 @@ size_t get_filesize(FILE *f) {
 /* test whether a 512B block contains the expected magic field */
 void check_magic(tar_header_t *header) {
 	if (memcmp(header->magic, TMAGIC, sizeof(TMAGIC)) && memcmp(header->magic, TOLDMAGIC, sizeof(TOLDMAGIC))) {
-		warnx("This does not look like a tar archive");
-		errx(NOT_TAR, "Exiting with failure status due to previous errors");
+		WARNX("This does not look like a tar archive");
+		ERRX(NOT_TAR, "Exiting with failure status due to previous errors");
 	}
 }
 
@@ -136,9 +140,9 @@ void list_tar_entry(tar_header_t *header, args_t *args, FILE *archive) {
 /* the function restores the original seek position after its done */
 void extract_tar_entry(tar_header_t *header, args_t *args, FILE *archive) {
 	long cur_pos = ftell(archive);
-	FILE *f = fopen(header->name, "w");
-	if (!f)
-		errx(INVALID_FILE, "Couldn't open file \"%s\" for writing", header->name);
+	FILE *f = fopen(header->name, "wb");
+	if (f == NULL)
+		ERR(INVALID_FILE, "Couldn't open file '%s' for writing", header->name);
 
 	tar_block_t block;
 	for (int remaining = octal_to_int(header->size); remaining > 0; remaining -= TAR_BLOCK_SIZE)
@@ -154,7 +158,8 @@ void extract_tar_entry(tar_header_t *header, args_t *args, FILE *archive) {
 /* ommits a warning when tar file ends with a lone zero 512B block */
 /* restores the original seek position when its done */
 void validate_tar_footer(FILE *archive) {
-	if (get_filesize(archive) < 2 * TAR_BLOCK_SIZE)	// a file of this size cannot have a lone zero block and still be a tar archive
+	/* a file of this size cannot have a lone zero block and still be a tar archive */
+	if (get_filesize(archive) < 2 * TAR_BLOCK_SIZE)
 		return;
 
 	long cur_pos = ftell(archive);
@@ -167,7 +172,7 @@ void validate_tar_footer(FILE *archive) {
 	fread(&archive_footer, sizeof(archive_footer), 1, archive);
 	if (!memcmp(&null_block, &(archive_footer.block2), TAR_BLOCK_SIZE)
 	    && memcmp(&null_block, &(archive_footer.block1), TAR_BLOCK_SIZE))
-		warnx("A lone zero block at %lu", get_block_number(ftell(archive)));
+		WARNX("A lone zero block at %lu", get_block_number(ftell(archive)));
 
 	fseek(archive, cur_pos, SEEK_SET);
 }
@@ -180,7 +185,7 @@ bool reached_tar_end(tar_header_t *header, FILE *archive) {
 /* raises an error when a file inside the archive is not of the regular type */
 void check_typeflag(char flag) {
 	if (flag != REGTYPE && flag != AREGTYPE)
-		errx(UNSUPPORTED_HEADER, "Unsupported header type: %d", flag);
+		ERRX(UNSUPPORTED_HEADER, "Unsupported header type: %d", flag);
 }
 
 /* check whether all file arguments supplied by user were found in the archive */
@@ -189,45 +194,46 @@ void check_fileargs(args_t *args) {
 	bool err = false;
 	for (int i = 0; i < args->file_count; ++i) {
 		if ((args->files)[i][0] != '\0') {
-			warnx("%s: Not found in archive", (args->files)[i]);
+			WARNX("%s: Not found in archive", (args->files)[i]);
 			err = true;
 		}
 	}
 	if (err)
-		errx(INVALID_FILE, "Exiting with failure status due to previous errors");
+		ERRX(INVALID_FILE, "Exiting with failure status due to previous errors");
 }
 
 /* checks whether the last entry of the archive is truncated */
 void check_if_truncated(long cur_pos, size_t entry_size, size_t file_size) {
 	if (cur_pos + entry_size > file_size) {
-		warnx("Unexpected EOF in archive");
-		errx(TRUNCATED_ARCHIVE, "Error is not recoverable: exiting now");
+		WARNX("Unexpected EOF in archive");
+		ERRX(TRUNCATED_ARCHIVE, "Error is not recoverable: exiting now");
 	}
 }
 
 /* parses user provided arguments into provided args_t struct */
 void get_args(int argc, char **argv, args_t *args) {
 	memset(args, 0, sizeof(args_t));	// args must be zeroed for error checking
-	args->files = (char **)(get_memory(argc * sizeof(char *)));
+	args->files = get_memory(argc * sizeof(char *));
 
-	while (*++argv) {
-		char *arg = *argv;
+	while (--argc) {
+		char *arg = *++argv;
 		if (arg[0] == '-') {
 			switch (arg[1]) {
 			case 'x':
 			case 't':
 				if (args->operation)
-					errx(MULTIPLE_ACTIONS, "A single action (-t or -x) must be specified");
+					ERRX(MULTIPLE_ACTIONS, "A single action (-t or -x) must be specified");
 				args->operation = (arg[1] == 'x' ? extract_tar_entry : list_tar_entry);
 				break;
 			case 'f':
-				args->archive_file = *++argv;	// if -f is the last arg the err will be caught below
+				args->archive_file = *++argv;
+				--argc;
 				break;
 			case 'v':
 				args->verbose = true;
 				break;
 			default:
-				errx(INVALID_OPTION, "No such option \"%s\"", arg);
+				ERRX(INVALID_OPTION, "No such option '%s'", arg);
 			}
 		} else {
 			(args->files)[args->file_count] = arg;
@@ -235,10 +241,10 @@ void get_args(int argc, char **argv, args_t *args) {
 		}
 	}
 
-	if (!args->operation)
-		errx(NO_ACTION, "Expected -x or -t but neither was given");
-	if (!args->archive_file)
-		errx(MISSING_ARGUMENT, "Expected -f");
+	if (args->operation == NULL)
+		ERRX(NO_ACTION, "Expected -x or -t but neither was given");
+	if (args->archive_file == NULL)
+		ERRX(MISSING_ARGUMENT, "Expected -f");
 }
 
 /* iterate over header blocks and perform on them the operation specified by user */
@@ -252,7 +258,6 @@ void iterate_tar(args_t *args, FILE *archive) {
 			check_magic(&header);
 			check_typeflag(header.typeflag);
 			(*(args->operation))(&header, args, archive);
-			fflush(stdout);	// avoids problems with stdout being buffered while stderr isnt
 		}
 		entry_size = get_entry_size(&header);
 		fseek(archive, entry_size, SEEK_CUR);	// jump to the next header
@@ -264,10 +269,10 @@ int main(int argc, char **argv) {
 	args_t args;
 	get_args(argc, argv, &args);
 
-	FILE *archive = fopen(args.archive_file, "r");
-	if (!archive) {
-		warnx("%s: Cannot open: No such file or directory", args.archive_file);
-		errx(INVALID_FILE, "Error is not recoverable: exiting now");
+	FILE *archive = fopen(args.archive_file, "rb");
+	if (archive == NULL) {
+		WARN("%s: Cannot open", args.archive_file);
+		ERRX(INVALID_FILE, "Error is not recoverable: exiting now");
 	}
 
 	iterate_tar(&args, archive);
