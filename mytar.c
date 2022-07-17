@@ -71,7 +71,7 @@ typedef struct args {
 
 void *get_memory(size_t bytes) {
 	void *ptr = malloc(bytes);
-	if (!ptr)
+	if (ptr == NULL)
 		errx(NO_MEMORY, "Out of memory");
 	return ptr;
 }
@@ -137,7 +137,7 @@ void list_tar_entry(tar_header_t *header, args_t *args, FILE *archive) {
 void extract_tar_entry(tar_header_t *header, args_t *args, FILE *archive) {
 	long cur_pos = ftell(archive);
 	FILE *f = fopen(header->name, "w");
-	if (!f)
+	if (f == NULL)
 		errx(INVALID_FILE, "Couldn't open file \"%s\" for writing", header->name);
 
 	tar_block_t block;
@@ -208,10 +208,10 @@ void check_if_truncated(long cur_pos, size_t entry_size, size_t file_size) {
 /* parses user provided arguments into provided args_t struct */
 void get_args(int argc, char **argv, args_t *args) {
 	memset(args, 0, sizeof(args_t));	// args must be zeroed for error checking
-	args->files = (char **)(get_memory(argc * sizeof(char *)));
+	args->files = get_memory(argc * sizeof(char *));
 
-	while (*++argv) {
-		char *arg = *argv;
+	while (--argc) {
+		char *arg = *++argv;
 		if (arg[0] == '-') {
 			switch (arg[1]) {
 			case 'x':
@@ -221,7 +221,8 @@ void get_args(int argc, char **argv, args_t *args) {
 				args->operation = (arg[1] == 'x' ? extract_tar_entry : list_tar_entry);
 				break;
 			case 'f':
-				args->archive_file = *++argv;	// if -f is the last arg the err will be caught below
+				args->archive_file = *++argv;
+				--argc;
 				break;
 			case 'v':
 				args->verbose = true;
@@ -235,9 +236,9 @@ void get_args(int argc, char **argv, args_t *args) {
 		}
 	}
 
-	if (!args->operation)
+	if (args->operation == NULL)
 		errx(NO_ACTION, "Expected -x or -t but neither was given");
-	if (!args->archive_file)
+	if (args->archive_file == NULL)
 		errx(MISSING_ARGUMENT, "Expected -f");
 }
 
@@ -265,7 +266,7 @@ int main(int argc, char **argv) {
 	get_args(argc, argv, &args);
 
 	FILE *archive = fopen(args.archive_file, "r");
-	if (!archive) {
+	if (archive == NULL) {
 		warnx("%s: Cannot open: No such file or directory", args.archive_file);
 		errx(INVALID_FILE, "Error is not recoverable: exiting now");
 	}
